@@ -1,29 +1,58 @@
 # TestGenius
 
-A powerful AI-powered test case generation tool that helps developers create comprehensive test suites.
+An AI-powered web application that accelerates and enhances the software testing lifecycle by automatically generating comprehensive test cases from Azure DevOps user stories.
 
 ## Overview
 
-TestGenius leverages AI to automatically generate test cases for your codebase, saving time and improving code quality. The tool analyzes your source code and creates relevant, effective test scenarios to ensure maximum coverage.
+TestGenius streamlines the testing process by leveraging AI to analyze user stories and generate relevant test cases, covering positive scenarios, negative scenarios, edge cases, data flow testing, and integration points. The application provides a seamless workflow from fetching user stories to uploading test cases back to Azure DevOps.
 
-## Features
+## Key Features
 
-- AI-powered test case generation
-- Support for multiple programming languages
-- Customizable test templates
-- Integration with popular testing frameworks
-- Easy-to-use interface
+- **Azure DevOps Integration**: Authenticate, fetch user stories, and upload test cases directly to test plans and suites
+- **AI-Powered Test Case Generation**: Generate comprehensive test cases using Google AI models via Genkit
+- **Flexible Test Case Management**:
+  - Edit AI-generated test cases
+  - Create manual test cases
+  - Append or replace existing test cases
+- **User Story Refinement**: Edit acceptance criteria before generation
+- **Seamless Upload**: Push test cases to Azure DevOps test plans and suites
+- **CSV Export**: Download test cases in Azure DevOps-compatible format
+- **Modern UI**: User-friendly interface built with ShadCN components and Tailwind CSS
 
-## Project Structure
+## Workflow
 
-```
-TestGenius/
-├── src/             # Source code
-├── tests/           # Test files
-├── public/          # Static assets
-├── docs/            # Documentation
-└── scripts/         # Utility scripts
-```
+1. **Authentication**
+   - Connect to Azure DevOps using organization URL, project name, and PAT
+   - Credentials are securely stored in local storage
+
+2. **Fetch & Refine User Stories**
+   - Retrieve user story details by ID
+   - View and edit acceptance criteria before test generation
+
+3. **Generate Test Cases**
+   - AI analyzes the user story to create comprehensive test cases
+   - Coverage includes positive tests, negative tests, edge cases, data flow, and integration points
+
+4. **Manage Test Cases**
+   - Review, edit, and delete AI-generated test cases
+   - Add manual test cases
+   - Choose to append or replace existing test cases
+
+5. **Upload to Azure DevOps**
+   - Configure target test plan and suite
+   - Upload test cases with detailed steps
+   - View upload status and direct links to created items
+
+6. **Export to CSV**
+   - Download test cases in Azure DevOps-compatible format
+
+## Technical Stack
+
+- Next.js web application
+- Genkit with Google AI models (like Gemini)
+- Azure DevOps REST API integration
+- ShadCN UI components
+- Tailwind CSS
 
 ## Installation
 
@@ -51,12 +80,11 @@ npm run build
 npm test
 ```
 
-## Technologies Used
+## Required Azure DevOps Permissions
 
-- Next.js
-- Firebase
-- TypeScript
-- AI/ML libraries
+The Personal Access Token (PAT) used with TestGenius requires the following scopes:
+- "Work Items (read & write)"
+- "Test Management (read & write)"
 
 ## Contributing
 
