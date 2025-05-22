@@ -2,6 +2,8 @@
 
 An AI-powered web application that accelerates and enhances the software testing lifecycle by automatically generating comprehensive test cases from Azure DevOps user stories.
 
+![TestGenius UI Screenshot](./TestGenius.png)
+
 ## Overview
 
 TestGenius streamlines the testing process by leveraging AI to analyze user stories and generate relevant test cases, covering positive scenarios, negative scenarios, edge cases, data flow testing, and integration points. The application provides a seamless workflow from fetching user stories to uploading test cases back to Azure DevOps.
