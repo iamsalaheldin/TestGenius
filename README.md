@@ -9,7 +9,7 @@ TestGenius streamlines the testing process by leveraging AI to analyze user stor
 ## Key Features
 
 - **Azure DevOps Integration**: Authenticate, fetch user stories, and upload test cases directly to test plans and suites
-- **AI-Powered Test Case Generation**: Generate comprehensive test cases using Google AI models via Genkit
+- **AI-Powered Test Case Generation**: Generate comprehensive test cases using Claude AI models via Genkit
 - **Flexible Test Case Management**:
   - Edit AI-generated test cases
   - Create manual test cases
@@ -49,7 +49,7 @@ TestGenius streamlines the testing process by leveraging AI to analyze user stor
 ## Technical Stack
 
 - Next.js web application
-- Genkit with Google AI models (like Gemini)
+- Anthropic Claude AI models via official SDK
 - Azure DevOps REST API integration
 - ShadCN UI components
 - Tailwind CSS

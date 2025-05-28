@@ -1,7 +1,7 @@
 
 "use client";
 
-import { generateTestCases } from '@/ai/flows/generate-test-cases';
+import { generateTestCases, type GenerateTestCasesInput } from '@/ai/flows/generate-test-cases';
 import { AuthModal } from '@/components/auth-modal';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { TestCaseList } from '@/components/test-case-list';
@@ -13,21 +13,35 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useCredentials } from '@/contexts/credentials-context';
 import { useToast } from '@/hooks/use-toast';
 import { fetchUserStoryById, uploadTestCaseToAzureDevOps } from '@/lib/azure-devops-api';
 import type { AzureDevOpsCredentials, TestCase, UserStory } from '@/types';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Bot, FolderSearch, LogIn, UploadCloud, Sparkles, PlusCircle, FileDown, ListChecks, ClipboardList } from 'lucide-react';
+import { Bot, FolderSearch, LogIn, UploadCloud, Sparkles, PlusCircle, FileDown, ListChecks, ClipboardList, Paperclip, X, Loader2, CheckCircle2, AlertTriangle, Trash2 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { cn } from '@/lib/utils';
+import { summarizeTestCaseGenerationResults } from '@/ai/flows/summarize-test-case-generation-results';
+
+import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
+
 
 const storyIdSchema = z.object({
   storyId: z.string().min(1, { message: "User Story ID is required." }).regex(/^\d+$/, { message: "Story ID must be a number." }),
 });
 type StoryIdFormData = z.infer<typeof storyIdSchema>;
+
+interface ProcessedDocument {
+  id: string;
+  name: string;
+  text: string | null;
+  status: 'pending' | 'processing' | 'success' | 'error';
+  errorMessage?: string;
+}
 
 export default function HomePage() {
   const { credentials, setCredentials, isLoading: credentialsLoading } = useCredentials();
@@ -48,6 +62,9 @@ export default function HomePage() {
   const [testSuiteId, setTestSuiteId] = useState<string>('');
   const [isGenerateConfirmationOpen, setIsGenerateConfirmationOpen] = useState(false);
 
+  const [processedDocuments, setProcessedDocuments] = useState<ProcessedDocument[]>([]);
+  const [isProcessingDocs, setIsProcessingDocs] = useState(false);
+
 
   const storyIdForm = useForm<StoryIdFormData>({
     resolver: zodResolver(storyIdSchema),
@@ -60,9 +77,19 @@ export default function HomePage() {
     }
   }, [credentials, credentialsLoading]);
 
-  const handleAuthentication = (creds: AzureDevOpsCredentials) => {
+  useEffect(() => {
+    try {
+       pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
+    } catch (e) {
+      console.warn("Could not set pdf.js workerSrc from package, falling back to /public/pdf.worker.min.js. Ensure the file exists there or use a CDN.", e);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+    }
+  }, []);
+
+
+  const handleAuthentication = async (creds: AzureDevOpsCredentials) => {
     setCredentials(creds);
-    toast({ title: "Authenticated", description: "Credentials saved successfully." });
+    toast({ title: "Authenticated", description: "Azure DevOps credentials saved." });
   };
 
   const handleFetchStory = async (data: StoryIdFormData) => {
@@ -75,6 +102,7 @@ export default function HomePage() {
     setUserStory(null); 
     setTestCases([]); 
     setManualTestCaseCounter(1); 
+    setProcessedDocuments([]); 
     try {
       const story = await fetchUserStoryById(data.storyId, credentials);
       setUserStory(story);
@@ -98,28 +126,34 @@ export default function HomePage() {
     }
     setIsGeneratingTests(true);
     setIsGenerateConfirmationOpen(false); 
+
+    const businessDocumentsText = processedDocuments
+        .filter(doc => doc.status === 'success' && doc.text)
+        .map(doc => `--- Document: ${doc.name} ---\n${doc.text}\n--- End Document: ${doc.name} ---`)
+        .join('\n\n');
+
     try {
-      const generated = await generateTestCases({
+      const aiInput: GenerateTestCasesInput = {
         storyTitle: userStory.title,
-        storyDescription: userStory.description,
         acceptanceCriteria: userStory.acceptanceCriteria,
-        // dataDictionary: "" // Add UI for this when ready
-      });
+        dataDictionary: "", // Placeholder for now, UI to be added
+        businessDocumentsText: businessDocumentsText || undefined,
+      };
+
+      const generated = await generateTestCases(aiInput);
 
       if (mode === 'append') {
         setTestCases(prev => {
           const manualCases = prev.filter(tc => tc.id.startsWith("MANUAL-"));
           const existingAiCases = prev.filter(tc => !tc.id.startsWith("MANUAL-"));
           
-          const newAiCasesMap = new Map(generated.map(tc => [tc.id, {...tc, uploadStatus: 'pending'} as TestCase]));
-          
-          const updatedAiCases = existingAiCases.map(tc => newAiCasesMap.get(tc.id) || tc);
-          
-          const finalAiCases = Array.from(new Map([...updatedAiCases, ...Array.from(newAiCasesMap.values())].map(tc => [tc.id, tc])).values());
+          const aiCasesMap = new Map(existingAiCases.map(tc => [tc.id, tc]));
+          generated.forEach(newTc => aiCasesMap.set(newTc.id, {...newTc, uploadStatus: 'pending'} as TestCase));
+          const finalUniqueAiCases = Array.from(aiCasesMap.values());
 
-          return [...manualCases, ...finalAiCases];
+          return [...manualCases, ...finalUniqueAiCases];
         });
-      } else { 
+      } else { // Override mode
         setTestCases(prev => [
           ...prev.filter(tc => tc.id.startsWith("MANUAL-")), 
           ...generated.map(tc => ({ ...tc, uploadStatus: 'pending' } as TestCase))
@@ -154,7 +188,7 @@ export default function HomePage() {
       id: newId,
       title: `Manual Test Case ${manualTestCaseCounter}`,
       priority: 'Medium',
-      description: '',
+      description: '', // Prerequisites are now part of description
       expectedResult: '',
       uploadStatus: 'pending',
     };
@@ -250,6 +284,8 @@ export default function HomePage() {
     let successCount = testCases.filter(tc => tc.uploadStatus === 'success').length;
     const totalToUpload = casesToUpload.length;
     let currentUploadIndex = 0;
+    const errorMessages: string[] = [];
+
 
     for (const testCase of casesToUpload) {
       currentUploadIndex++;
@@ -268,25 +304,43 @@ export default function HomePage() {
         successCount++;
       } catch (error) {
         const uploadErrorMessage = error instanceof Error ? error.message : "Unknown upload error.";
+        errorMessages.push(`${testCase.id}: ${uploadErrorMessage}`);
         setTestCases(prev => prev.map(tc => 
           tc.id === testCase.id 
           ? { ...tc, uploadStatus: 'failed', uploadError: uploadErrorMessage } 
           : tc
         ));
-        toast({ variant: "destructive", title: `Upload Failed: ${testCase.id}`, description: uploadErrorMessage });
       } finally {
          setUploadingTestCaseIds(prev => prev.filter(id => id !== testCase.id));
       }
     }
     
     setIsUploadingTests(false);
-    const totalTestCases = testCases.length;
-    if (successCount === totalTestCases) {
-       toast({ title: "Upload Complete", description: `✅ ${successCount} test cases created and added to Suite ID ${testSuiteId} in Plan ID ${testPlanId}.` });
-    } else if (successCount > 0) {
-      toast({ title: "Partial Upload", description: `⚠️ ${successCount} test cases successfully processed. ${totalTestCases - successCount} failed. Check individual cards for errors.` });
-    } else {
-      toast({ variant: "destructive", title: "Upload Failed", description: `❌ All test case uploads failed. Check individual cards for errors.` });
+    const failureCount = totalToUpload - (successCount - testCases.filter(tc => tc.uploadStatus === 'success' && !casesToUpload.find(c => c.id === tc.id)).length); 
+
+    if (failureCount > 0 && successCount > 0) {
+      toast({ title: "Partial Upload Complete", description: `Successfully uploaded ${successCount - testCases.filter(tc => tc.uploadStatus === 'success' && !casesToUpload.find(c => c.id === tc.id)).length} test cases. ${failureCount} failed. Check cards for details.` });
+    } else if (successCount > 0 && failureCount === 0) {
+      toast({ title: "Upload Complete", description: `All ${successCount - testCases.filter(tc => tc.uploadStatus === 'success' && !casesToUpload.find(c => c.id === tc.id)).length} test cases successfully uploaded to Suite ID ${testSuiteId}.` });
+    } else if (failureCount > 0 && successCount === 0) {
+      toast({ variant: "destructive", title: "Upload Failed", description: `All ${failureCount} test case uploads failed. Check cards for details.` });
+    }
+    
+    if (casesToUpload.length > 0) {
+      try {
+        const summaryResult = await summarizeTestCaseGenerationResults({
+            successCount: successCount - testCases.filter(tc => tc.uploadStatus === 'success' && !casesToUpload.find(c => c.id === tc.id)).length,
+            failureCount: failureCount,
+            errorMessages: errorMessages,
+        });
+        toast({
+            title: "Upload Summary",
+            description: `${summaryResult.summary} ${summaryResult.progress}`,
+            duration: 7000,
+        });
+      } catch (summaryError) {
+          console.error("Failed to get upload summary from AI:", summaryError);
+      }
     }
   };
 
@@ -298,6 +352,97 @@ export default function HomePage() {
       }));
     }
   };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) {
+      if (processedDocuments.length === 0) {
+        setProcessedDocuments([]);
+      }
+      return;
+    }
+  
+    setIsProcessingDocs(true);
+    const newFileEntries = Array.from(files).map(file => ({
+        id: `${file.name}-${file.lastModified}`,
+        name: file.name,
+        text: null,
+        status: 'processing' as ProcessedDocument['status'],
+        errorMessage: undefined
+    }));
+
+    setProcessedDocuments(prevDocs => {
+      const updatedDocs = [...prevDocs];
+      newFileEntries.forEach(newDocEntry => {
+        const existingIndex = updatedDocs.findIndex(d => d.id === newDocEntry.id);
+        if (existingIndex > -1) {
+          updatedDocs[existingIndex] = { ...updatedDocs[existingIndex], status: 'processing', text: null, errorMessage: undefined };
+        } else {
+          updatedDocs.push(newDocEntry);
+        }
+      });
+      return updatedDocs;
+    });
+  
+    for (const file of Array.from(files)) {
+      const docId = `${file.name}-${file.lastModified}`;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        let extractedText = '';
+  
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+          const pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+          for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+            const page = await pdfDoc.getPage(pageNum);
+            const textContent = await page.getTextContent();
+            extractedText += textContent.items.map((item: any) => item.str).join(' ') + '\n';
+          }
+        } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.toLowerCase().endsWith('.docx')) {
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          extractedText = result.value;
+        } else if (file.type === 'application/msword' || file.name.toLowerCase().endsWith('.doc')) {
+          try {
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            extractedText = result.value;
+          } catch (docError) {
+            console.warn(`Limited support for .doc file ${file.name}:`, docError);
+            setProcessedDocuments(prev => prev.map(d =>
+              d.id === docId ? { ...d, status: 'error', text: null, errorMessage: `Failed to parse .doc file: ${file.name}. Limited support.` } : d
+            ));
+            continue;
+          }
+        } else if (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')) {
+          extractedText = await file.text();
+        } else {
+          setProcessedDocuments(prev => prev.map(d =>
+            d.id === docId ? { ...d, status: 'error', text: null, errorMessage: `Unsupported file type: ${file.type || 'unknown'}` } : d
+          ));
+          continue; 
+        }
+        setProcessedDocuments(prev => prev.map(d =>
+          d.id === docId ? { ...d, text: extractedText.trim(), status: 'success' } : d
+        ));
+      } catch (error) {
+        console.error(`Error processing file ${file.name}:`, error);
+        setProcessedDocuments(prev => prev.map(d =>
+          d.id === docId ? { ...d, status: 'error', text: null, errorMessage: (error instanceof Error ? error.message : 'Unknown error') } : d
+        ));
+      }
+    }
+    setIsProcessingDocs(false);
+    if (event.target) {
+      event.target.value = ''; 
+    }
+  };
+
+  const handleRemoveDocument = (docId: string) => {
+    setProcessedDocuments(prev => prev.filter(doc => doc.id !== docId));
+  };
+
+  const handleClearAllDocuments = () => {
+    setProcessedDocuments([]);
+  };
+
 
   if (credentialsLoading) {
     return (
@@ -314,11 +459,13 @@ export default function HomePage() {
           <h1 className="text-2xl sm:text-3xl font-bold flex items-center">
             <Bot className="mr-3 h-8 w-8" /> Test Genius
           </h1>
-          {credentials && (
-             <Button variant="ghost" onClick={() => { setCredentials(null); setUserStory(null); setTestCases([]); storyIdForm.reset(); setManualTestCaseCounter(1); setTestPlanId(''); setTestSuiteId('');}} className="text-primary-foreground hover:bg-primary/80">
-              <LogIn className="mr-2 h-4 w-4 transform rotate-180" /> Log Out
-            </Button>
-          )}
+          <div className="flex items-center space-x-4">
+            {credentials && (
+              <Button variant="ghost" onClick={() => { setCredentials(null); setUserStory(null); setTestCases([]); storyIdForm.reset(); setManualTestCaseCounter(1); setTestPlanId(''); setTestSuiteId(''); setProcessedDocuments([]);}} className="text-primary-foreground hover:bg-primary/80">
+                <LogIn className="mr-2 h-4 w-4 transform rotate-180" /> Log Out
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -345,7 +492,7 @@ export default function HomePage() {
               </CardHeader>
               <CardContent>
                 <Form {...storyIdForm}>
-                  <form onSubmit={storyIdForm.handleSubmit(handleFetchStory)} className="flex flex-col sm:flex-row items-start gap-4">
+                  <form onSubmit={storyIdForm.handleSubmit(handleFetchStory)} className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
                     <FormField
                       control={storyIdForm.control}
                       name="storyId"
@@ -395,7 +542,76 @@ export default function HomePage() {
                       className="mt-1 bg-background resize-y"
                     />
                   </div>
-                  <Button onClick={handleGenerateTestCases} disabled={isGeneratingTests || !userStory} className="w-full sm:w-auto">
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Section: Supporting Documents Upload */}
+            {userStory && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center"><Paperclip className="mr-2 h-6 w-6 text-primary" /> Supporting Documents</CardTitle>
+                  <CardDescription>Upload PDF, DOCX, DOC, or TXT files to provide additional context for test case generation.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Input 
+                    type="file" 
+                    multiple 
+                    accept=".pdf,.doc,.docx,.txt" 
+                    onChange={handleFileChange}
+                    disabled={isProcessingDocs}
+                    className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 file:inline-flex file:items-center file:justify-center"
+                  />
+                  {processedDocuments.length > 0 && (
+                    <div className="space-y-3 mt-4">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-md font-semibold">Selected Files:</h4>
+                        <Button variant="outline" size="sm" onClick={handleClearAllDocuments} disabled={isProcessingDocs}>
+                          <Trash2 className="mr-2 h-4 w-4" /> Clear All
+                        </Button>
+                      </div>
+                      <ul className="space-y-2">
+                        {processedDocuments.map(doc => (
+                          <li key={doc.id} className="flex items-center justify-between p-2 border rounded-md bg-muted/30">
+                            <div className="flex items-center space-x-2 overflow-hidden">
+                              {doc.status === 'processing' && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                              {doc.status === 'success' && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                              {doc.status === 'error' && <AlertTriangle className="h-4 w-4 text-destructive" />}
+                              <span className="text-sm truncate" title={doc.name}>{doc.name}</span>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={() => handleRemoveDocument(doc.id)} disabled={isProcessingDocs} className="h-7 w-7">
+                              <X className="h-4 w-4" />
+                              <span className="sr-only">Remove {doc.name}</span>
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                       {processedDocuments.some(doc => doc.status === 'error') && (
+                        <Alert variant="destructive" className="mt-2">
+                            <AlertTriangle className="h-4 w-4" />
+                            <AlertTitle>File Processing Error</AlertTitle>
+                            <AlertDescription>
+                            Some documents could not be processed. Check individual errors or try again.
+                            {processedDocuments.filter(d=>d.status === 'error').map(d => <p key={d.id} className="text-xs">- {d.name}: {d.errorMessage}</p>)}
+                            </AlertDescription>
+                        </Alert>
+                        )}
+                    </div>
+                  )}
+                  {isProcessingDocs && (
+                    <div className="flex items-center justify-center text-muted-foreground mt-2">
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        <span>Processing documents...</span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Button to Generate Test Cases */}
+            {userStory && (
+              <div className="mt-6">
+                 <Button onClick={handleGenerateTestCases} disabled={isGeneratingTests || !userStory || isProcessingDocs} className="w-full sm:w-auto">
                     {isGeneratingTests ? <LoadingSpinner size={18} className="mr-2" /> : <Sparkles className="mr-2 h-4 w-4" />}
                     Generate Test Cases
                   </Button>
@@ -405,8 +621,7 @@ export default function HomePage() {
                         <span>⏳ Generating test cases with AI... this may take a moment.</span>
                       </div>
                     )}
-                </CardContent>
-              </Card>
+              </div>
             )}
             
             {/* Section 3: Test Suite Configuration */}
@@ -510,10 +725,10 @@ export default function HomePage() {
                         or replace all current AI-generated test cases with a fresh set? Manual test cases will always be preserved.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
-                <AlertDialogFooter className="sm:justify-center">
+                <AlertDialogFooter className="sm:justify-center sm:flex-wrap">
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                     <AlertDialogAction 
-                      className={cn(buttonVariants({ variant: "outline" }))}
+                      className={cn(buttonVariants({ variant: "outline" }), "text-foreground")}
                       onClick={() => performAiGeneration('append')}
                     >
                         Generate & Append/Update

@@ -8,7 +8,7 @@ export interface AzureDevOpsCredentials {
 export interface UserStory {
   id: string;
   title: string;
-  description?: string; // Added optional description
+  description?: string;
   acceptanceCriteria: string;
   url: string;
 }
@@ -17,7 +17,8 @@ export interface TestCase {
   id: string; // Temporary ID, e.g., TC-1, TC-2
   title: string;
   priority: 'High' | 'Medium' | 'Low';
-  description: string; // Steps
+  // prerequisites field removed
+  description: string; // Steps, may now include prerequisites as initial steps
   expectedResult: string;
   azureDevOpsId?: number; // Populated after upload
   azureDevOpsUrl?: string; // Populated after upload
@@ -46,3 +47,4 @@ export type AzureDevOpsCreatedWorkItem = {
   };
   // Other fields returned by Azure DevOps API
 };
+

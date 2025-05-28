@@ -2,7 +2,7 @@
 "use client";
 
 import type { TestCase } from '@/types';
-import { GripVertical, Save, Trash2, Edit3, XCircle } from 'lucide-react';
+import { Save, Trash2, Edit3, XCircle } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -57,7 +57,7 @@ export function TestCaseCard({ testCase, onUpdate, onDelete, isUploading }: Test
   const getPriorityBadgeVariant = (priority: 'High' | 'Medium' | 'Low') => {
     switch (priority) {
       case 'High': return 'destructive';
-      case 'Medium': return 'secondary'; // Use secondary for Medium, or customize if needed
+      case 'Medium': return 'secondary';
       case 'Low': return 'outline';
       default: return 'default';
     }
@@ -126,7 +126,7 @@ export function TestCaseCard({ testCase, onUpdate, onDelete, isUploading }: Test
               </Select>
             </div>
             <div>
-              <Label htmlFor={`description-${testCase.id}`} className="text-sm font-medium">Description (Steps)</Label>
+              <Label htmlFor={`description-${testCase.id}`} className="text-sm font-medium">Description (Steps, including prerequisites)</Label>
               <Textarea
                 id={`description-${testCase.id}`}
                 name="description"
@@ -134,6 +134,7 @@ export function TestCaseCard({ testCase, onUpdate, onDelete, isUploading }: Test
                 onChange={handleInputChange}
                 rows={4}
                 className="resize-none"
+                placeholder="Enter numbered test steps, including prerequisites as initial steps."
                 disabled={isUploading}
               />
             </div>
@@ -146,6 +147,7 @@ export function TestCaseCard({ testCase, onUpdate, onDelete, isUploading }: Test
                 onChange={handleInputChange}
                 rows={3}
                 className="resize-none"
+                placeholder="Enter expected result"
                 disabled={isUploading}
               />
             </div>
@@ -153,7 +155,7 @@ export function TestCaseCard({ testCase, onUpdate, onDelete, isUploading }: Test
         ) : (
           <>
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Description (Steps)</p>
+              <p className="text-sm font-medium text-muted-foreground">Description (Steps, including prerequisites)</p>
               <p className="text-sm whitespace-pre-wrap">{testCase.description}</p>
             </div>
             <div>

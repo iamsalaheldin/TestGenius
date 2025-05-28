@@ -87,6 +87,8 @@ export async function fetchUserStoryById(
   };
 }
 
+// Removed fetchAuthenticatedUserDetails function as per user request
+
 function mapPriorityToAzureDevOps(priority: 'High' | 'Medium' | 'Low'): 1 | 2 | 3 {
   switch (priority) {
     case 'High': return 1;
@@ -110,7 +112,7 @@ function prepareContentForXml(text: string | undefined): string {
   if (text === undefined) return "";
   const trimmedText = text.trim();
   if (trimmedText.length === 0) {
-    return "";
+    return ""; 
   }
   const contentWithBreaks = trimmedText.replace(/\n/g, '<br />');
   return escapeHtml(contentWithBreaks);
@@ -128,7 +130,7 @@ function generateStepsXml(description: string | undefined, overallExpectedResult
     .filter(step => step.length > 0);
 
   if (stepsArray.length === 0 && cleanedExpectedResult.length > 0) {
-    stepsArray = ["Verify expected result."];
+    stepsArray = ["Verify expected result."]; // Create a generic step if only expected result exists
   }
   
   if (stepsArray.length === 0) {
@@ -220,8 +222,8 @@ export async function uploadTestCaseToAzureDevOps(
     method: 'POST',
     headers: {
       ...getAuthHeader(pat),
-      // No Content-Type or body needed for this specific POST operation as per documentation for this endpoint structure
     },
+    // No body for this specific POST request
   });
 
   if (!suiteResponse.ok) {
@@ -238,12 +240,12 @@ export async function uploadTestCaseToAzureDevOps(
     }
 
     let userHint = "";
-    if (suiteResponse.status === 404) {
-        userHint = ` This often means the Test Plan ID ('${planId}') or Test Suite ID ('${suiteId}') is incorrect for project '${projectName}', the suite doesn't belong to the specified plan, or the API endpoint/version is not found. Crucially, ensure the Test Suite ID ('${suiteId}') refers to a STATIC test suite. Test cases cannot be manually added to query-based or requirement-based suites using this API. Also, verify your PAT has 'Test Management (read & write)' permissions. Please verify these details and their relationship in Azure DevOps. ADO Message: '${apiErrorMessage}'`;
+     if (suiteResponse.status === 404) {
+        userHint = ` This often means the Test Plan ID ('${planId}') or Test Suite ID ('${suiteId}') is incorrect for project '${encodedProjectName}', the suite doesn't belong to the specified plan, or the API endpoint/version is not found. Crucially, ensure the Test Suite ID ('${suiteId}') refers to a STATIC test suite. Test cases cannot be manually added to query-based or requirement-based suites using this API. Also, verify your PAT has 'Test Management (read & write)' permissions. Please verify these details and their relationship in Azure DevOps. ADO Message: '${apiErrorMessage}'`;
     } else if (suiteResponse.status === 401 || suiteResponse.status === 403) {
         userHint = ` This could be a permission issue with your PAT. Ensure it has 'Test Management (read & write)' scopes. ADO Message: '${apiErrorMessage}'`;
     } else if (suiteResponse.status === 400) {
-         userHint = ` This might indicate an invalid request format or invalid IDs. ADO Message: '${apiErrorMessage}'`;
+         userHint = ` This might indicate an invalid request format or invalid IDs (API version: 7.1). ADO Message: '${apiErrorMessage}'`;
     } else {
         userHint = ` ADO Message: '${apiErrorMessage}'`;
     }
